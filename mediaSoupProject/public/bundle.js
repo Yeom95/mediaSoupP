@@ -21093,8 +21093,8 @@ const socket = io('/mediasoup', {
     transports: ['websocket'], // 또는 ['polling', 'websocket']
 });
 
-socket.on('connection-success',(socketId) => {
-    console.log(socketId);
+socket.on('connection-success',({ socketId,existsProducer }) => {
+    console.log(socketId,existsProducer);
 });
 
 let params ={
@@ -21128,10 +21128,25 @@ const streamSuccess = async(stream) => {
         track,
         ...params,
     };
+
+    goConnect(true);
+};
+
+const goConsume = () => {
+    goConnect(false);
+};
+
+const goConnect = (producerOrConsumer) => {
+    isProducer = producerOrConsumer;
+    device === undefined ? getRtpCapabilities() : goCreateTransport();
+};
+
+const goCreateTransport = () => {
+    isProducer ? createSendTransport() : createRecvTransport();
 };
 
 const getLocalStream = () => {
-    navigator.getUserMedia({
+    navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
             width:{
@@ -21143,7 +21158,7 @@ const getLocalStream = () => {
                 max:1080,
             },
         },
-    },streamSuccess,(error)=>{
+    }).then(streamSuccess).catch((error) => {
         console.log(error.message);
     });
 };
@@ -21154,6 +21169,7 @@ let producerTransport;
 let consumerTransport;
 let producer;
 let consumer;
+let isProducer = false;
 
 const createDevice = async() => {
     try{
@@ -21164,6 +21180,8 @@ const createDevice = async() => {
         });
 
         console.log('RTP Capabilities',rtpCapabilities);
+
+        goCreateTransport();
     } catch (error) {
         console.log(error);
         if(error.name === 'unsupportedError')
@@ -21175,6 +21193,7 @@ const getRtpCapabilities = () => {
     socket.emit('getRtpCapabilities',(data) => {
         console.log(`Router RTP Capabilities... ${data.rtpCapabilities}`);
         rtpCapabilities = data.rtpCapabilities;
+        createDevice();
     });
 };
 
@@ -21217,6 +21236,7 @@ const createSendTransport = () => {
                 errback(error);
             }
         });
+        connectSendTransport();
     });
 };
 
@@ -21257,6 +21277,8 @@ const createRecvTransport = async() => {
                 errback(error);
             }
         });
+
+        connectRecvTransport();
     });
 };
 
@@ -21286,19 +21308,9 @@ const connectRecvTransport = async() => {
 };
 
 const btnLocalVideo = document.getElementById('btnLocalVideo');
-const btnRtpCapabilities = document.getElementById('btnRtpCapabilities');
-const btnDevice = document.getElementById('btnDevice');
-const btnCreateSendTransport = document.getElementById('btnCreateSendTransport');
-const btnConnectSendTransport = document.getElementById('btnConnectSendTransport');
 const btnRecvSendTransport = document.getElementById('btnRecvSendTransport');
-const btnConnectRecvTransport = document.getElementById('btnConnectRecvTransport');
 
 btnLocalVideo.addEventListener('click',getLocalStream);
-btnRtpCapabilities.addEventListener('click', getRtpCapabilities);
-btnDevice.addEventListener('click',createDevice);
-btnCreateSendTransport.addEventListener('click',createSendTransport);
-btnConnectSendTransport.addEventListener('click',connectSendTransport);
-btnRecvSendTransport.addEventListener('click',createRecvTransport);
-btnConnectRecvTransport.addEventListener('click',connectRecvTransport);
+btnRecvSendTransport.addEventListener('click',goConsume);
 
 },{"mediasoup-client":58,"socket.io-client":72}]},{},[81]);
