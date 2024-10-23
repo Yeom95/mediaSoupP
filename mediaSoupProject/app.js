@@ -9,6 +9,7 @@ const __dirname = path.resolve();
 
 import { Server } from 'socket.io';
 import mediasoup from 'mediasoup';
+//import { ConsumerScore } from 'mediasoup/node/lib/fbs/consumer';
 //import { CreateWebRtcTransportRequest } from 'mediasoup/node/lib/fbs/router';
 
 app.get('/', (req, res) => {
@@ -43,6 +44,8 @@ let worker;
 let router;
 let producerTransport;
 let consumerTransport;
+let producer;
+let consumer;
 
 const createWorker = async() =>{
     worker = await mediasoup.createWorker({
@@ -112,11 +115,74 @@ peers.on('connection',async (socket)=>{
     });
 
     socket.on('transport-produce',async({ kind,rtpParameters,appData },callback)=>{
-        kind,
-        rtpParameters,
-        appData;
+        producer = await producerTransport.produce({
+            kind,
+            rtpParameters,
+        });
+
+        console.log('Producer ID: ',producer.id,producer.kind);
+
+        producer.on('transportclose',() => {
+            console.log('transport for this producer closed');
+            producer.close();
+        });
+
+        callback({
+            id:producer.id,
+        });
+    });
+
+    socket.on('transport-recv-connect',async({ dtlsParameters }) => {
+        console.log(`DTLS PARAMS: ${dtlsParameters}`);
+        await consumerTransport.connect({ dtlsParameters });
+    });
+
+    socket.on('consume',async ({ rtpCapabilities },callback) => {
+        try{
+            if(router.canConsume({
+                producerId:producer.id,
+                rtpCapabilities,
+            }))
+            {consumer = await consumerTransport.consume({
+                producerId:producer.id,
+                rtpCapabilities:rtpCapabilities,
+                paused:true,
+            });}
+
+            consumer.on('transportclose',()=> {
+                console.log('transport close from consumer');
+            });
+
+            consumer.on('producerclose',()=> {
+                console.log('producer of consumer closed');
+            });
+
+            const params = {
+                id:consumer.id,
+                producerId:producer.id,
+                kind:consumer.kind,
+                rtpParameters:consumer.rtpParameters,
+            };
+
+            callback({ params });
+
+        } catch (error){
+            console.log(error.message);
+            callback({
+                params:{
+                    error:error,
+                },
+            });
+        }
+    });
+
+    socket.on('consumer-resume',async() => {
+        console.log('consumer resume');
+        await consumer.resume();
     });
 });
+
+
 
 const createWebRtcTransport = async(callback) =>{
     try{

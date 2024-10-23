@@ -2,7 +2,9 @@
 const io = require('socket.io-client');
 const mediasoupClient = require('mediasoup-client');
 
-const socket = io('/mediasoup');
+const socket = io('/mediasoup', {
+    transports: ['websocket'], // 또는 ['polling', 'websocket']
+});
 
 socket.on('connection-success',(socketId) => {
     console.log(socketId);
@@ -62,7 +64,9 @@ const getLocalStream = () => {
 let device;
 let rtpCapabilities;
 let producerTransport;
+let consumerTransport;
 let producer;
+let consumer;
 
 const createDevice = async() => {
     try{
@@ -130,7 +134,7 @@ const createSendTransport = () => {
 };
 
 const connectSendTransport = async() => {
-    producer = await producerTransport.producer(params);
+    producer = await producerTransport.produce(params);
 
     producer.on('trackended',() => {
         console.log('track ended');
@@ -145,14 +149,67 @@ const connectSendTransport = async() => {
     });
 };
 
+const createRecvTransport = async() => {
+    await socket.emit('createWebRtcTransport',{ sender:false },({ params }) => {
+        if(params.error){
+            console.log(params.error);
+            return;
+        }
+
+        console.log(params);
+
+        consumerTransport = device.createRecvTransport(params);
+
+        consumerTransport.on('connect',async({ dtlsParameters },callback,errback)=>{
+            try{
+                await socket.emit('transport-recv-connect',{
+                    dtlsParameters,
+                });
+                callback();
+            }catch(error){
+                errback(error);
+            }
+        });
+    });
+};
+
+const connectRecvTransport = async() => {
+    await socket.emit('consume',{
+        rtpCapabilities: device.rtpCapabilities,
+    },async({ params }) => {
+        if(params.error){
+            console.log('Cannot Consume');
+            return;
+        }
+
+        console.log(params);
+        consumer = await consumerTransport.consume({
+            id:params.id,
+            producerId:params.producerId,
+            kind:params.kind,
+            rtpParameters:params.rtpParameters,
+        });
+
+        const { track } = consumer;
+
+        remoteVideo.srcObject = new MediaStream([track]);
+
+        socket.emit('consumer-resume');
+    });
+};
+
 const btnLocalVideo = document.getElementById('btnLocalVideo');
 const btnRtpCapabilities = document.getElementById('btnRtpCapabilities');
 const btnDevice = document.getElementById('btnDevice');
 const btnCreateSendTransport = document.getElementById('btnCreateSendTransport');
 const btnConnectSendTransport = document.getElementById('btnConnectSendTransport');
+const btnRecvSendTransport = document.getElementById('btnRecvSendTransport');
+const btnConnectRecvTransport = document.getElementById('btnConnectRecvTransport');
 
 btnLocalVideo.addEventListener('click',getLocalStream);
 btnRtpCapabilities.addEventListener('click', getRtpCapabilities);
 btnDevice.addEventListener('click',createDevice);
 btnCreateSendTransport.addEventListener('click',createSendTransport);
 btnConnectSendTransport.addEventListener('click',connectSendTransport);
+btnRecvSendTransport.addEventListener('click',createRecvTransport);
+btnConnectRecvTransport.addEventListener('click',connectRecvTransport);
